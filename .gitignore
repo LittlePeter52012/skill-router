@@ -1,0 +1,22 @@
+# Build outputs
+bin/
+dist/
+coverage.out
+*.exe
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Security: NEVER commit credentials or API keys
+# Only match files named 'credentials', not directories
+**/credentials
+!**/credentials/
+!**/credentials/*.go
+*.key
+*.secret
+.env
+.env.*
