@@ -20,3 +20,4 @@ coverage.out
 *.secret
 .env
 .env.*
+.github/workflows/
