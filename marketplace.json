@@ -1,0 +1,40 @@
+{
+  "name": "skrt",
+  "version": "0.3.0",
+  "description": "Blazing-fast skill routing engine for AI agents. 7-strategy matching + AI reranking in <50ms.",
+  "author": "skrt-dev",
+  "license": "MIT",
+  "repository": "https://github.com/LittlePeter52012/skill-router",
+  "keywords": [
+    "skill-router",
+    "agent-skills",
+    "skill-discovery",
+    "SKILL.md",
+    "claude-code",
+    "codex",
+    "cursor",
+    "gemini-cli",
+    "antigravity",
+    "meta-skill",
+    "productivity"
+  ],
+  "compatibility": [
+    "claude-code",
+    "codex-cli",
+    "cursor",
+    "gemini-cli",
+    "antigravity",
+    "openclaw",
+    "cline",
+    "windsurf"
+  ],
+  "install": {
+    "requires": ["go>=1.21"],
+    "commands": [
+      "git clone https://github.com/LittlePeter52012/skill-router.git",
+      "cd skill-router && make install",
+      "skrt index && skrt smart-pin"
+    ]
+  },
+  "skill_path": "SKILL.md"
+}
