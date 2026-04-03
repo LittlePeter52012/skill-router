@@ -31,10 +31,11 @@ import (
 	"github.com/skrt-dev/skill-router/internal/index"
 	"github.com/skrt-dev/skill-router/internal/matcher"
 	"github.com/skrt-dev/skill-router/internal/provider"
+	"github.com/skrt-dev/skill-router/internal/smartpin"
 )
 
 var (
-	version   = "0.2.0"
+	version   = "0.3.0"
 	buildTime = "dev"
 	gitCommit = "none"
 )
@@ -69,6 +70,8 @@ func main() {
 		cmdDir()
 	case "provider", "prov":
 		cmdProvider()
+	case "smart-pin", "sp":
+		cmdSmartPin()
 	case "version", "-v", "--version":
 		cmdVersion()
 	case "help", "-h", "--help":
@@ -673,9 +676,113 @@ Examples:
   skrt q "protein structure" --provider api
   skrt pin add brainstorming
   skrt dir add ~/my-custom-skills
+  skrt smart-pin              Analyze usage and auto-suggest pins
+  skrt smart-pin --apply       Auto-apply suggested pins
 
 Config: ~/.skrt/config.json
 Cache:  ~/.skrt/index.json
 `)
 }
 
+// cmdSmartPin analyzes usage patterns and suggests skills to pin.
+func cmdSmartPin() {
+	// Parse flags
+	autoApply := false
+	maxPins := 7
+	for _, arg := range os.Args[2:] {
+		switch arg {
+		case "--apply", "-a":
+			autoApply = true
+		}
+	}
+
+	fmt.Println("🔍 Analyzing your agent usage patterns...")
+	fmt.Println()
+
+	// Load config
+	cfgPath := config.ConfigPath()
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		cfg = config.DefaultConfig()
+	}
+
+	// Build/load index to get skill list
+	idx, err := index.GetOrBuild(cfg.SkillDirs, index.CachePath(), false)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error building index: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Run analysis
+	suggestions := smartpin.Analyze(idx.Entries)
+
+	if len(suggestions) == 0 {
+		fmt.Println("  No suggestions found. Use your agent more to generate usage data!")
+		return
+	}
+
+	// Show top suggestions
+	showCount := maxPins
+	if showCount > len(suggestions) {
+		showCount = len(suggestions)
+	}
+
+	fmt.Printf("📊 Found %d relevant skills from %d installed:\n\n", len(suggestions), len(idx.Entries))
+	fmt.Print(smartpin.FormatSuggestions(suggestions, showCount))
+
+	// Determine which are new (not already pinned)
+	existingPins := map[string]bool{}
+	for _, p := range cfg.Pinned {
+		existingPins[p] = true
+	}
+
+	newPins := []string{}
+	for i := 0; i < showCount; i++ {
+		if !existingPins[suggestions[i].Name] {
+			newPins = append(newPins, suggestions[i].Name)
+		}
+	}
+
+	if len(newPins) == 0 {
+		fmt.Println("\n✅ All suggested skills are already pinned!")
+		return
+	}
+
+	fmt.Printf("\n📌 New pins to add: %s\n", strings.Join(newPins, ", "))
+
+	if !autoApply {
+		fmt.Print("\nApply these pins? [Y/n] ")
+		reader := bufio.NewReader(os.Stdin)
+		answer, _ := reader.ReadString('\n')
+		answer = strings.TrimSpace(strings.ToLower(answer))
+		if answer != "" && answer != "y" && answer != "yes" {
+			fmt.Println("Cancelled.")
+			return
+		}
+	}
+
+	// Apply pins
+	for _, name := range newPins {
+		found := false
+		for _, p := range cfg.Pinned {
+			if p == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			cfg.Pinned = append(cfg.Pinned, name)
+		}
+	}
+
+	if err := config.Save(cfgPath, cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("\n✅ Pinned %d skills! Current pins:\n", len(newPins))
+	for _, p := range cfg.Pinned {
+		fmt.Printf("  📌 %s\n", p)
+	}
+	fmt.Println("\nRun `skrt index --force` to rebuild with new pin weights.")
+}

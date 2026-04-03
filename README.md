@@ -108,6 +108,41 @@ skrt pin remove brainstorming
 skrt pin list
 ```
 
+### 🧠 Smart Pin (Auto-Suggest)
+
+SKRT can analyze your agent's usage patterns and **automatically suggest which skills to pin**:
+
+```bash
+# Interactive: analyze, show suggestions, and ask for confirmation
+skrt smart-pin
+
+# Auto-apply: skip confirmation prompt
+skrt smart-pin --apply
+```
+
+How it works:
+1. **Infrastructure Detection** — identifies essential "always loaded" skills
+2. **Chat History Analysis** — scans agent conversation logs to find frequently-used skills
+3. **Popularity Heuristics** — recognizes universally useful skill categories
+4. **Interactive Confirmation** — shows scored suggestions and lets you approve
+
+```
+🔍 Analyzing your agent usage patterns...
+
+📊 Found 7 relevant skills from 352 installed:
+
+  1. 🏗️ skill-router (relevance: 40)
+     → skill routing infrastructure (this tool)
+  2. 🏗️ brainstorming (relevance: 35)
+     → pre-work requirement for creative tasks
+  3. 📌 writing (relevance: 28)
+     → mentioned 9× in chat history
+  ...
+
+📌 New pins to add: writing, scientific-writing, prompt-master
+Apply these pins? [Y/n]
+```
+
 ## 🤖 AI Provider Architecture
 
 SKRT supports pluggable AI backends for enhanced accuracy:
@@ -157,6 +192,7 @@ skrt <terms>                  Shorthand for 'query' (auto-detected)
 skrt index [--force]          Rebuild the skill index (alias: idx)
 skrt status                   Show index and config status (alias: st)
 skrt pin add|remove|list      Manage pinned skills
+skrt smart-pin [--apply]      Auto-suggest pins from usage patterns
 skrt dir add|remove|list      Manage skill directories
 skrt provider status          Show AI provider configuration
 skrt provider setup           Configure API provider (interactive)
@@ -230,6 +266,7 @@ skill-router/
 │   ├── index/         # SKILL.md scanning, caching, checksums
 │   ├── matcher/       # 7-strategy matching engine
 │   ├── provider/      # Pluggable AI backends (local/api)
+│   ├── smartpin/      # Usage-based smart pin suggestions
 │   └── unicode/       # Shared CJK text utilities
 ├── pkg/frontmatter/   # YAML frontmatter parser
 ├── Makefile
@@ -245,6 +282,23 @@ make cover    # Generate coverage report
 make lint     # Run go vet
 make release  # Build for all platforms
 ```
+
+## 🏪 Publishing & Distribution
+
+SKRT is a **CLI tool + Agent Meta-Skill** — it provides both a human CLI interface and a machine-readable SKILL.md for agent integration.
+
+| Channel | Status | Notes |
+|---------|--------|-------|
+| **GitHub** | ✅ Active | Source code, releases, issues |
+| **go install** | ✅ Available | `go install github.com/skrt-dev/skill-router/cmd/skrt@latest` |
+| **Agensi.io** | 🔜 Planned | SKILL.md marketplace (skill zip upload) |
+| **agentskills.io** | 🔜 Planned | Open standard skill directory |
+
+### What SKRT Is NOT
+
+- ❌ **Not an MCP server** — MCP requires persistent JSON-RPC processes. SKRT is a one-shot CLI.
+- ❌ **Not a LobeHub plugin** — LobeHub uses OpenAPI-spec HTTP plugins for LobeChat.
+- ❌ **Not an IDE extension** — works across all terminal-based agents.
 
 ## License
 
