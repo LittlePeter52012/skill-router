@@ -573,10 +573,12 @@ func cmdUpdate() {
 	}
 
 	updatedAny := false
+	matchedAny := false
 	for _, src := range sources {
 		if targetName != "" && src.Name != targetName {
 			continue
 		}
+		matchedAny = true
 		fmt.Printf("Updating source: %s\n", src.Name)
 		result, err := updater.UpdateSource(src, dryRun)
 		if err != nil {
@@ -599,6 +601,15 @@ func cmdUpdate() {
 		if src.Reindex {
 			reindexAfter = true
 		}
+	}
+
+	if targetName != "" && !matchedAny {
+		var names []string
+		for _, src := range sources {
+			names = append(names, src.Name)
+		}
+		fmt.Fprintf(os.Stderr, "Error: source %q not found. Available: %s\n", targetName, strings.Join(names, ", "))
+		os.Exit(1)
 	}
 
 	if !dryRun && updatedAny && reindexAfter {
