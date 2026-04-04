@@ -26,6 +26,13 @@ func makeTestIndex() *index.Index {
 				Tokens:      []string{"nlm", "skill", "notebooklm", "notebook", "google", "查找", "搜索", "笔记", "知识"},
 			},
 			{
+				Name:        "skill-router",
+				Description: "ALWAYS LOADED. Intelligent skill search router. Route search requests to the right skill using skrt query.",
+				Dir:         "skill-router",
+				Path:        "/test/skills/skill-router/SKILL.md",
+				Tokens:      []string{"skill", "router", "route", "search", "query"},
+			},
+			{
 				Name:        "brainstorming",
 				Description: "You MUST use this before any creative work - creating features, building components.",
 				Dir:         "brainstorming",
@@ -121,6 +128,22 @@ func TestPinnedSkillBoost(t *testing.T) {
 			}
 			break
 		}
+	}
+}
+
+func TestPinnedRouterDoesNotBeatSpecificSkill(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.TopN = 10
+	cfg.MinScore = 0
+	cfg.Pinned = []string{"skill-router"}
+	engine := NewEngine(cfg)
+
+	results := engine.Query(makeTestIndex(), "NotebookLM search")
+	if len(results) == 0 {
+		t.Fatal("expected at least one result")
+	}
+	if results[0].Name != "nlm-skill" {
+		t.Fatalf("top result = %q, want %q", results[0].Name, "nlm-skill")
 	}
 }
 

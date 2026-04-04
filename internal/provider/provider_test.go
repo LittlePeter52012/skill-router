@@ -131,3 +131,46 @@ func TestGetWithFallback(t *testing.T) {
 		t.Errorf("expected fallback to 'local', got '%s'", p.Name())
 	}
 }
+
+func TestResolveForQueryPrefersLocalUntilAPIIsExplicit(t *testing.T) {
+	t.Setenv("SKRT_TEST_API_KEY", "dummy-key")
+
+	cfg := config.DefaultConfig()
+	cfg.Provider = "api"
+	cfg.ProviderMode = config.ProviderModeLocalFirst
+	cfg.Providers = map[string]config.ProviderConfig{
+		"api": {
+			Endpoint:  "https://example.com",
+			APIKeyEnv: "SKRT_TEST_API_KEY",
+		},
+	}
+
+	p := ResolveForQuery(cfg, "")
+	if p.Name() != "local" {
+		t.Fatalf("implicit provider = %q, want %q", p.Name(), "local")
+	}
+
+	p = ResolveForQuery(cfg, "api")
+	if p.Name() != "api" {
+		t.Fatalf("explicit provider = %q, want %q", p.Name(), "api")
+	}
+}
+
+func TestResolveForQueryUsesConfiguredProviderInProviderFirstMode(t *testing.T) {
+	t.Setenv("SKRT_TEST_API_KEY", "dummy-key")
+
+	cfg := config.DefaultConfig()
+	cfg.Provider = "api"
+	cfg.ProviderMode = config.ProviderModeProviderFirst
+	cfg.Providers = map[string]config.ProviderConfig{
+		"api": {
+			Endpoint:  "https://example.com",
+			APIKeyEnv: "SKRT_TEST_API_KEY",
+		},
+	}
+
+	p := ResolveForQuery(cfg, "")
+	if p.Name() != "api" {
+		t.Fatalf("provider-first mode returned %q, want %q", p.Name(), "api")
+	}
+}

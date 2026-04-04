@@ -15,6 +15,9 @@
 //	skrt dir add <path>              Add a skill search directory
 //	skrt dir remove <path>           Remove a skill search directory
 //	skrt dir list                    List skill search directories
+//	skrt source add ...              Register a managed git skill source
+//	skrt source remove <name>        Remove a managed skill source
+//	skrt source list                 List managed skill sources
 //	skrt version                     Show version information
 package main
 
@@ -32,6 +35,7 @@ import (
 	"github.com/skrt-dev/skill-router/internal/matcher"
 	"github.com/skrt-dev/skill-router/internal/provider"
 	"github.com/skrt-dev/skill-router/internal/smartpin"
+	"github.com/skrt-dev/skill-router/internal/updater"
 )
 
 var (
@@ -68,8 +72,12 @@ func main() {
 		cmdPin()
 	case "dir":
 		cmdDir()
+	case "source", "src":
+		cmdSource()
 	case "provider", "prov":
 		cmdProvider()
+	case "update", "upd":
+		cmdUpdate()
 	case "smart-pin", "sp":
 		cmdSmartPin()
 	case "version", "-v", "--version":
@@ -128,9 +136,6 @@ func cmdQuery() {
 	if topN > 0 {
 		cfg.TopN = topN
 	}
-	if providerName != "" {
-		cfg.Provider = providerName
-	}
 
 	query := strings.Join(cleanArgs, " ")
 	if query == "" {
@@ -140,7 +145,7 @@ func cmdQuery() {
 
 	// Get or build index
 	dirs := cfg.ExpandedSkillDirs()
-	idx, err := index.GetOrBuild(dirs, index.CachePath(), false)
+	idx, err := index.GetOrBuild(dirs, index.CachePath(), false, cfg.IgnoreDirNames)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error building index: %v\n", err)
 		os.Exit(1)
@@ -150,8 +155,9 @@ func cmdQuery() {
 	engine := matcher.NewEngine(cfg)
 	results := engine.Query(idx, query)
 
-	// Apply AI reranking if configured (Layer 2 — optional)
-	p := provider.GetWithFallback(cfg)
+	// Apply reranking only when explicitly requested or when provider-first
+	// mode is enabled. Default behavior stays local-first.
+	p := provider.ResolveForQuery(cfg, providerName)
 	if p.Name() != "local" {
 		reranked, err := p.Rerank(results, query)
 		if err != nil {
@@ -208,7 +214,7 @@ func cmdIndex() {
 	start := time.Now()
 	dirs := cfg.ExpandedSkillDirs()
 
-	idx, err := index.GetOrBuild(dirs, index.CachePath(), force)
+	idx, err := index.GetOrBuild(dirs, index.CachePath(), force, cfg.IgnoreDirNames)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error building index: %v\n", err)
 		os.Exit(1)
@@ -231,7 +237,7 @@ func cmdStatus() {
 	fmt.Println("=== SKRT Status ===")
 	fmt.Printf("Config: %s\n", config.ConfigPath())
 	fmt.Printf("Cache:  %s\n", index.CachePath())
-	fmt.Printf("Provider: %s\n", cfg.Provider)
+	fmt.Printf("Provider: %s (mode: %s)\n", cfg.Provider, cfg.ProviderMode)
 
 	fmt.Println("\nSkill Directories:")
 	dirs := cfg.ExpandedSkillDirs()
@@ -253,6 +259,24 @@ func cmdStatus() {
 				fmt.Printf("  📌 %s (weight: +%d)\n", p, w)
 			} else {
 				fmt.Printf("  📌 %s\n", p)
+			}
+		}
+
+		fmt.Println("\nIgnored Directory Names:")
+		if len(cfg.IgnoreDirNames) == 0 {
+			fmt.Println("  (none)")
+		} else {
+			for _, name := range cfg.IgnoreDirNames {
+				fmt.Printf("  ⤫ %s\n", name)
+			}
+		}
+
+		fmt.Println("\nManaged Sources:")
+		if len(cfg.Sources) == 0 {
+			fmt.Println("  (none)")
+		} else {
+			for _, src := range cfg.ExpandedSources() {
+				fmt.Printf("  • %s → %s\n", src.Name, src.Path)
 			}
 		}
 	}
@@ -416,6 +440,176 @@ func cmdDir() {
 	}
 }
 
+// cmdSource implements the "source" subcommand for managed git skill sources.
+func cmdSource() {
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "Usage: skrt source <add|remove|list> [...]")
+		os.Exit(1)
+	}
+
+	action := os.Args[2]
+	cfgPath := config.ConfigPath()
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		cfg = config.DefaultConfig()
+	}
+
+	switch action {
+	case "add":
+		if len(os.Args) < 5 {
+			fmt.Fprintln(os.Stderr, "Usage: skrt source add <name> <path> [--install \"cmd\"] [--reindex]")
+			os.Exit(1)
+		}
+		src := config.ManagedSource{
+			Name: os.Args[3],
+			Path: os.Args[4],
+		}
+		for i := 5; i < len(os.Args); i++ {
+			switch os.Args[i] {
+			case "--install":
+				if i+1 < len(os.Args) {
+					i++
+					src.Install = append(src.Install, os.Args[i])
+				}
+			case "--reindex":
+				src.Reindex = true
+			}
+		}
+		for _, existing := range cfg.Sources {
+			if existing.Name == src.Name {
+				fmt.Printf("Already registered: %s\n", src.Name)
+				return
+			}
+		}
+		cfg.Sources = append(cfg.Sources, src)
+		if err := config.Save(cfgPath, cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Added source: %s → %s\n", src.Name, src.Path)
+
+	case "remove", "rm":
+		if len(os.Args) < 4 {
+			fmt.Fprintln(os.Stderr, "Usage: skrt source remove <name>")
+			os.Exit(1)
+		}
+		name := os.Args[3]
+		found := false
+		filtered := make([]config.ManagedSource, 0, len(cfg.Sources))
+		for _, src := range cfg.Sources {
+			if src.Name == name {
+				found = true
+				continue
+			}
+			filtered = append(filtered, src)
+		}
+		if !found {
+			fmt.Printf("Not found: %s\n", name)
+			return
+		}
+		cfg.Sources = filtered
+		if err := config.Save(cfgPath, cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Removed source: %s\n", name)
+
+	case "list", "ls":
+		sources := cfg.ExpandedSources()
+		if len(sources) == 0 {
+			fmt.Println("No managed sources.")
+			return
+		}
+		for _, src := range sources {
+			status := "enabled"
+			if src.Disabled {
+				status = "disabled"
+			}
+			fmt.Printf("  • %s (%s)\n", src.Name, status)
+			fmt.Printf("    path: %s\n", src.Path)
+			if len(src.Install) > 0 {
+				fmt.Printf("    install: %s\n", strings.Join(src.Install, " | "))
+			}
+			if src.Reindex {
+				fmt.Printf("    reindex: true\n")
+			}
+		}
+
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown source action: %s\n", action)
+		os.Exit(1)
+	}
+}
+
+// cmdUpdate implements the "update" subcommand for managed skill sources.
+func cmdUpdate() {
+	cfg, err := config.Load(config.ConfigPath())
+	if err != nil {
+		cfg = config.DefaultConfig()
+	}
+
+	dryRun := false
+	targetName := ""
+	reindexAfter := false
+	for i := 2; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "--dry-run":
+			dryRun = true
+		case "--name":
+			if i+1 < len(os.Args) {
+				i++
+				targetName = os.Args[i]
+			}
+		case "--reindex":
+			reindexAfter = true
+		}
+	}
+
+	sources := cfg.ExpandedSources()
+	if len(sources) == 0 {
+		fmt.Println("No managed sources configured. Use `skrt source add ...` first.")
+		return
+	}
+
+	updatedAny := false
+	for _, src := range sources {
+		if targetName != "" && src.Name != targetName {
+			continue
+		}
+		fmt.Printf("Updating source: %s\n", src.Name)
+		result, err := updater.UpdateSource(src, dryRun)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  ✗ %v\n", err)
+			os.Exit(1)
+		}
+		if dryRun {
+			fmt.Printf("  ↳ dry-run: %s @ %s\n", src.Path, result.BeforeRev)
+			continue
+		}
+		if result.Updated {
+			updatedAny = true
+			fmt.Printf("  ✓ %s → %s\n", result.BeforeRev[:12], result.AfterRev[:12])
+			if result.InstallRan > 0 {
+				fmt.Printf("  ↳ ran %d install command(s)\n", result.InstallRan)
+			}
+		} else {
+			fmt.Printf("  ↳ already up to date (%s)\n", result.BeforeRev[:12])
+		}
+		if src.Reindex {
+			reindexAfter = true
+		}
+	}
+
+	if !dryRun && updatedAny && reindexAfter {
+		fmt.Println("Rebuilding skill index...")
+		if _, err := index.GetOrBuild(cfg.ExpandedSkillDirs(), index.CachePath(), true, cfg.IgnoreDirNames); err != nil {
+			fmt.Fprintf(os.Stderr, "Error rebuilding index: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("  ✓ index rebuilt")
+	}
+}
+
 // cmdVersion implements the "version" subcommand.
 func cmdVersion() {
 	fmt.Printf("skrt %s (%s, %s)\n", version, gitCommit, buildTime)
@@ -451,11 +645,16 @@ func cmdProvider() {
 			os.Exit(1)
 		}
 		cfg.Provider = name
+		if name == "api" {
+			cfg.ProviderMode = config.ProviderModeProviderFirst
+		} else {
+			cfg.ProviderMode = config.ProviderModeLocalFirst
+		}
 		if err := config.Save(cfgPath, cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("✅ Provider set to: %s\n", name)
+		fmt.Printf("✅ Provider set to: %s (mode: %s)\n", name, cfg.ProviderMode)
 
 	case "setup":
 		cmdProviderSetup()
@@ -493,12 +692,19 @@ func cmdProviderStatus() {
 	}
 
 	fmt.Println("=== SKRT Provider Status ===")
-	fmt.Printf("Active Provider: %s\n", cfg.Provider)
+	fmt.Printf("Configured Provider: %s\n", cfg.Provider)
+	fmt.Printf("Query Mode: %s\n", cfg.ProviderMode)
 
-	if cfg.Provider == "local" {
+	if cfg.Provider == "local" || cfg.ProviderMode != config.ProviderModeProviderFirst {
 		fmt.Println("\n  Mode: Keyword matching only (zero dependencies)")
 		fmt.Println("  Speed: ~3ms matching + ~50ms I/O overhead")
-		fmt.Println("\n  To enable AI reranking: skrt provider setup")
+		if cfg.Provider != "local" {
+			fmt.Printf("\n  API provider is configured but inactive by default.\n")
+			fmt.Printf("  Use: skrt q \"your query\" --provider %s\n", cfg.Provider)
+			fmt.Printf("  Or:  skrt provider set %s\n", cfg.Provider)
+		} else {
+			fmt.Println("\n  To configure AI reranking: skrt provider setup")
+		}
 		return
 	}
 
@@ -615,6 +821,7 @@ func cmdProviderSetup() {
 		Model:     model,
 	}
 	cfg.Provider = "api"
+	cfg.ProviderMode = config.ProviderModeLocalFirst
 	cfg.Fusion = &config.FusionConfig{
 		KeywordWeight: kwWeight,
 		AIWeight:      aiWeight,
@@ -631,7 +838,8 @@ func cmdProviderSetup() {
 	fmt.Printf("  Endpoint: %s\n", endpoint)
 	fmt.Printf("  Key Ref:  $%s\n", apiKeyEnv)
 	fmt.Printf("  Fusion:   keyword=%.1f, ai=%.1f\n", kwWeight, aiWeight)
-	fmt.Println("\n  Try: skrt query \"PDF merge\" --verbose")
+	fmt.Println("\n  Default behavior remains local-first.")
+	fmt.Println("  Try: skrt query \"PDF merge\" --provider api --verbose")
 }
 
 // printUsage prints the usage information.
@@ -653,16 +861,20 @@ Usage:
   skrt dir add <path>           Add a skill search directory
   skrt dir remove <path>        Remove a skill search directory
   skrt dir list                 List skill search directories
+  skrt source add ...           Register a managed git skill source
+  skrt source remove <name>     Remove a managed skill source
+  skrt source list              List managed skill sources
   skrt provider status          Show AI provider configuration
   skrt provider set <name>      Switch provider: local, api
   skrt provider setup           Configure Gemini API provider
   skrt provider models          List supported embedding models
+  skrt update [--reindex]       Pull managed sources and optionally rebuild index
   skrt version                  Show version information
 
 Query Options:
   --verbose, -v          Show debug info on stderr
   --top N                Override max results (default: 5)
-  --provider, -p NAME    Use AI provider: local (default), api
+  --provider, -p NAME    Use provider for this query only: local, api
 
 Provider Setup:
   skrt provider setup --model gemini-embedding-001
@@ -676,6 +888,8 @@ Examples:
   skrt q "protein structure" --provider api
   skrt pin add brainstorming
   skrt dir add ~/my-custom-skills
+  skrt source add skills ~/src/skills --install "make install" --reindex
+  skrt update --reindex
   skrt smart-pin              Analyze usage and auto-suggest pins
   skrt smart-pin --apply       Auto-apply suggested pins
 
@@ -707,7 +921,7 @@ func cmdSmartPin() {
 	}
 
 	// Build/load index to get skill list
-	idx, err := index.GetOrBuild(cfg.SkillDirs, index.CachePath(), false)
+	idx, err := index.GetOrBuild(cfg.ExpandedSkillDirs(), index.CachePath(), false, cfg.IgnoreDirNames)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error building index: %v\n", err)
 		os.Exit(1)

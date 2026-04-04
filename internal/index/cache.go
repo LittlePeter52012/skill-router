@@ -70,16 +70,16 @@ func SaveCache(path string, idx *Index) error {
 // IsCacheValid checks if the cached index matches the current state of
 // skill directories using a two-tier validation strategy:
 //
-//   Tier 1 (Fast, ~0.1ms): Compare the cache file's mtime against each
-//          skill directory's mtime. If cache is newer than ALL dirs, skip
-//          the expensive checksum walk.
+//	Tier 1 (Fast, ~0.1ms): Compare the cache file's mtime against each
+//	       skill directory's mtime. If cache is newer than ALL dirs, skip
+//	       the expensive checksum walk.
 //
-//   Tier 2 (Thorough, ~30-50ms): Full directory walk + SHA256 checksum.
-//          Only runs when a directory has been modified since the last cache.
+//	Tier 2 (Thorough, ~30-50ms): Full directory walk + SHA256 checksum.
+//	       Only runs when a directory has been modified since the last cache.
 //
 // This means: if no SKILL.md was added/removed/modified since the last cache,
 // validation completes in <1ms instead of 50ms.
-func IsCacheValid(cached *Index, dirs []string, cachePath string) bool {
+func IsCacheValid(cached *Index, dirs []string, cachePath string, ignoreDirNames []string) bool {
 	if cached == nil {
 		return false
 	}
@@ -94,6 +94,19 @@ func IsCacheValid(cached *Index, dirs []string, cachePath string) bool {
 	}
 	for _, d := range dirs {
 		if !dirSet[d] {
+			return false
+		}
+	}
+
+	if len(cached.IgnoreDirNames) != len(ignoreDirNames) {
+		return false
+	}
+	ignoreSet := make(map[string]bool, len(cached.IgnoreDirNames))
+	for _, name := range cached.IgnoreDirNames {
+		ignoreSet[name] = true
+	}
+	for _, name := range ignoreDirNames {
+		if !ignoreSet[name] {
 			return false
 		}
 	}
@@ -150,7 +163,7 @@ func IsCacheValid(cached *Index, dirs []string, cachePath string) bool {
 	}
 
 	// === Tier 2: Full checksum verification ===
-	current := computeChecksum(dirs)
+	current := computeChecksum(dirs, ignoreDirNames)
 	return cached.Checksum == current
 }
 
@@ -160,12 +173,22 @@ func IsCacheValid(cached *Index, dirs []string, cachePath string) bool {
 //
 // The paths are sorted before hashing to ensure deterministic output regardless
 // of filesystem walk order.
-func computeChecksum(dirs []string) string {
+func computeChecksum(dirs []string, ignoreDirNames []string) string {
 	var items []string
+	ignoreSet := make(map[string]struct{}, len(ignoreDirNames))
+	for _, name := range ignoreDirNames {
+		ignoreSet[name] = struct{}{}
+	}
 
 	for _, dir := range dirs {
 		_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				if _, skip := ignoreSet[d.Name()]; skip {
+					return filepath.SkipDir
+				}
 				return nil
 			}
 			if d.Name() == "SKILL.md" {
@@ -192,16 +215,16 @@ func computeChecksum(dirs []string) string {
 
 // GetOrBuild loads the index from cache if valid, otherwise rebuilds it.
 // This is the main entry point for obtaining the skill index.
-func GetOrBuild(dirs []string, cachePath string, forceRebuild bool) (*Index, error) {
+func GetOrBuild(dirs []string, cachePath string, forceRebuild bool, ignoreDirNames []string) (*Index, error) {
 	if !forceRebuild {
 		cached, err := LoadCache(cachePath)
-		if err == nil && IsCacheValid(cached, dirs, cachePath) {
+		if err == nil && IsCacheValid(cached, dirs, cachePath, ignoreDirNames) {
 			return cached, nil
 		}
 	}
 
 	// Rebuild
-	idx, err := Build(dirs)
+	idx, err := Build(dirs, ignoreDirNames)
 	if err != nil {
 		return nil, err
 	}

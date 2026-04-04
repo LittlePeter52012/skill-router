@@ -14,6 +14,9 @@ import (
 const (
 	configDir  = ".skrt"
 	configFile = "config.json"
+
+	ProviderModeLocalFirst    = "local_first"
+	ProviderModeProviderFirst = "provider_first"
 )
 
 // ProviderConfig holds settings for a specific AI provider.
@@ -43,6 +46,16 @@ type FusionConfig struct {
 	TimeoutMs int `json:"timeout_ms"`
 }
 
+// ManagedSource describes a locally checked-out git repository that SKRT can
+// update on demand, then optionally run install/sync commands against.
+type ManagedSource struct {
+	Name     string   `json:"name"`
+	Path     string   `json:"path"`
+	Install  []string `json:"install,omitempty"`
+	Reindex  bool     `json:"reindex,omitempty"`
+	Disabled bool     `json:"disabled,omitempty"`
+}
+
 // Config holds all user configuration for SKRT.
 type Config struct {
 	// SkillDirs is a list of directories to scan for SKILL.md files.
@@ -61,30 +74,39 @@ type Config struct {
 	// MinScore is the minimum score threshold for results.
 	MinScore int `json:"min_score"`
 
+	// IgnoreDirNames skips noisy or duplicate-heavy repository mirrors while indexing.
+	IgnoreDirNames []string `json:"ignore_dir_names,omitempty"`
+
 	// Provider is the active provider name: "local", "onnx", or "api".
 	// Default is "local" (keyword matching only, zero dependencies).
 	Provider string `json:"provider"`
+
+	// ProviderMode controls whether queries should stay local-first or
+	// automatically invoke the configured provider by default.
+	ProviderMode string `json:"provider_mode,omitempty"`
 
 	// Providers maps provider names to their configuration.
 	Providers map[string]ProviderConfig `json:"providers,omitempty"`
 
 	// Fusion controls how keyword and AI scores are blended.
 	Fusion *FusionConfig `json:"fusion,omitempty"`
+
+	// Sources are locally checked-out skill repositories that SKRT can update.
+	Sources []ManagedSource `json:"sources,omitempty"`
 }
 
 // DefaultConfig returns a sensible default configuration.
 func DefaultConfig() *Config {
 	return &Config{
-		SkillDirs: []string{
-			"~/.gemini/antigravity/skills",
-			"~/.agents/skills",
-			"./.agent/skills",
-		},
-		Pinned:   []string{},
-		Weights:  map[string]int{},
-		TopN:     5,
-		MinScore: 10,
-		Provider: "local",
+		SkillDirs:      defaultSkillDirs(),
+		Pinned:         []string{},
+		Weights:        map[string]int{},
+		TopN:           5,
+		MinScore:       10,
+		IgnoreDirNames: defaultIgnoreDirNames(),
+		Provider:       "local",
+		ProviderMode:   ProviderModeLocalFirst,
+		Sources:        []ManagedSource{},
 	}
 }
 
@@ -120,6 +142,15 @@ func Load(path string) (*Config, error) {
 	if cfg.Provider == "" {
 		cfg.Provider = "local"
 	}
+	if cfg.ProviderMode == "" {
+		cfg.ProviderMode = ProviderModeLocalFirst
+	}
+	if len(cfg.IgnoreDirNames) == 0 {
+		cfg.IgnoreDirNames = defaultIgnoreDirNames()
+	} else {
+		cfg.IgnoreDirNames = mergeUnique(cfg.IgnoreDirNames, defaultIgnoreDirNames())
+	}
+	cfg.SkillDirs = mergeUnique(cfg.SkillDirs, defaultSkillDirs())
 
 	return cfg, nil
 }
@@ -225,4 +256,67 @@ func (c *Config) GetFusion() FusionConfig {
 		AIWeight:      0.4,
 		TimeoutMs:     500,
 	}
+}
+
+// ExpandedSources returns managed sources with ~ expanded in their local paths.
+func (c *Config) ExpandedSources() []ManagedSource {
+	home, _ := os.UserHomeDir()
+	sources := make([]ManagedSource, 0, len(c.Sources))
+	for _, src := range c.Sources {
+		expanded := src
+		if strings.HasPrefix(expanded.Path, "~/") {
+			expanded.Path = filepath.Join(home, expanded.Path[2:])
+		}
+		sources = append(sources, expanded)
+	}
+	return sources
+}
+
+func defaultSkillDirs() []string {
+	return []string{
+		"~/.gemini/antigravity/skills",
+		"~/.agents/skills",
+		"~/.config/opencode/skills",
+		"~/.qwen/skills",
+		"~/.cc-switch/skills",
+		"~/.codex/skills",
+		"~/.codex/vendor_imports/skills",
+		"./.agent/skills",
+	}
+}
+
+func defaultIgnoreDirNames() []string {
+	return []string{
+		".git",
+		".agency-agents-repo",
+		".kdense-repo",
+		".superpowers-repo",
+	}
+}
+
+func mergeUnique(existing, defaults []string) []string {
+	seen := make(map[string]struct{}, len(existing)+len(defaults))
+	merged := make([]string, 0, len(existing)+len(defaults))
+
+	for _, dir := range existing {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			continue
+		}
+		if _, ok := seen[dir]; ok {
+			continue
+		}
+		seen[dir] = struct{}{}
+		merged = append(merged, dir)
+	}
+
+	for _, dir := range defaults {
+		if _, ok := seen[dir]; ok {
+			continue
+		}
+		seen[dir] = struct{}{}
+		merged = append(merged, dir)
+	}
+
+	return merged
 }

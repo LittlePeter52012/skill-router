@@ -18,14 +18,24 @@ import (
 
 // Build scans all configured skill directories concurrently and builds
 // a complete index of available skills.
-func Build(dirs []string) (*Index, error) {
+func Build(dirs []string, ignoreDirNames []string) (*Index, error) {
 	// Discover all SKILL.md files
 	var paths []string
+	ignoreSet := make(map[string]struct{}, len(ignoreDirNames))
+	for _, name := range ignoreDirNames {
+		ignoreSet[name] = struct{}{}
+	}
 	for _, dir := range dirs {
 		expanded := expandHome(dir)
 		_ = filepath.WalkDir(expanded, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return nil // Skip inaccessible paths
+			}
+			if d.IsDir() {
+				if _, skip := ignoreSet[d.Name()]; skip {
+					return filepath.SkipDir
+				}
+				return nil
 			}
 			if d.Name() == "SKILL.md" && !d.IsDir() {
 				paths = append(paths, path)
@@ -36,10 +46,11 @@ func Build(dirs []string) (*Index, error) {
 
 	if len(paths) == 0 {
 		return &Index{
-			Version:   cacheVersion,
-			BuiltAt:   time.Now().UTC().Format(time.RFC3339),
-			SkillDirs: dirs,
-			Entries:   []SkillEntry{},
+			Version:        cacheVersion,
+			BuiltAt:        time.Now().UTC().Format(time.RFC3339),
+			SkillDirs:      dirs,
+			IgnoreDirNames: ignoreDirNames,
+			Entries:        []SkillEntry{},
 		}, nil
 	}
 
@@ -83,11 +94,12 @@ func Build(dirs []string) (*Index, error) {
 	checksum := buildChecksum(entries)
 
 	return &Index{
-		Version:   cacheVersion,
-		BuiltAt:   time.Now().UTC().Format(time.RFC3339),
-		Checksum:  checksum,
-		SkillDirs: dirs,
-		Entries:   entries,
+		Version:        cacheVersion,
+		BuiltAt:        time.Now().UTC().Format(time.RFC3339),
+		Checksum:       checksum,
+		SkillDirs:      dirs,
+		IgnoreDirNames: ignoreDirNames,
+		Entries:        entries,
 	}, nil
 }
 

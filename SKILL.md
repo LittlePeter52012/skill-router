@@ -89,4 +89,4 @@ skrt index --force
 - Index cache: `~/.skrt/index.json`
 - Supports Chinese (CJK), English, and mixed queries
 - Typical latency: < 80ms end-to-end
-- Codebase: `~/Desktop/test/skillmux/` (GitHub: `skrt-dev/skill-router`)
+- Codebase: `~/path/to/skill-router/` (GitHub: `skrt-dev/skill-router`)

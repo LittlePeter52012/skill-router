@@ -123,18 +123,7 @@ func scanConversationLogs() map[string]int {
 		return counts
 	}
 
-	// Known agent conversation log locations
-	logPaths := []struct {
-		pattern string
-		maxScan int
-	}{
-		// Antigravity conversation logs
-		{filepath.Join(home, ".gemini", "antigravity", "brain", "*", ".system_generated", "logs", "overview.txt"), 20},
-		// Claude Code project logs
-		{filepath.Join(home, ".claude", "projects", "*", "*", "*.md"), 10},
-	}
-
-	for _, lp := range logPaths {
+	for _, lp := range conversationLogPatterns(home) {
 		files, err := filepath.Glob(lp.pattern)
 		if err != nil {
 			continue
@@ -159,6 +148,24 @@ func scanConversationLogs() map[string]int {
 	}
 
 	return counts
+}
+
+type logPattern struct {
+	pattern string
+	maxScan int
+}
+
+func conversationLogPatterns(home string) []logPattern {
+	return []logPattern{
+		// Antigravity conversation logs
+		{filepath.Join(home, ".gemini", "antigravity", "brain", "*", ".system_generated", "logs", "overview.txt"), 20},
+		// Claude Code project logs
+		{filepath.Join(home, ".claude", "projects", "*", "*", "*.md"), 10},
+		// Codex transcript history
+		{filepath.Join(home, ".codex", "history.jsonl"), 1},
+		// Gemini CLI chat exports and temp chat history
+		{filepath.Join(home, ".gemini", "tmp", "*", "chats", "*.json"), 20},
+	}
 }
 
 // scanFileForSkillMentions reads a file and counts skill name mentions.

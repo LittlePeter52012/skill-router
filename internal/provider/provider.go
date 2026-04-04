@@ -3,10 +3,11 @@
 // implement the Provider interface for unified skill routing.
 //
 // Architecture:
-//   Layer 1 (Default): Local keyword matching — always runs, ~3ms, zero dependencies.
-//   Layer 2 (Optional): AI Reranking via Provider interface — ONNX, Gemini, or any
-//                        OpenAI-compatible API endpoint.
-//   Layer 3: Fusion ranking — blends keyword + AI scores (configurable weights).
+//
+//	Layer 1 (Default): Local keyword matching — always runs, ~3ms, zero dependencies.
+//	Layer 2 (Optional): AI Reranking via Provider interface — ONNX, Gemini, or any
+//	                     OpenAI-compatible API endpoint.
+//	Layer 3: Fusion ranking — blends keyword + AI scores (configurable weights).
 //
 // Usage:
 //
@@ -65,4 +66,21 @@ func GetWithFallback(cfg *config.Config) Provider {
 		return &LocalProvider{}
 	}
 	return p
+}
+
+// ResolveForQuery chooses the provider for a single query.
+// Explicit provider flags always win. Otherwise SKRT stays local-first
+// unless the config is explicitly set to provider-first mode.
+func ResolveForQuery(cfg *config.Config, requested string) Provider {
+	if requested != "" {
+		override := *cfg
+		override.Provider = requested
+		return GetWithFallback(&override)
+	}
+
+	if cfg.ProviderMode == config.ProviderModeProviderFirst {
+		return GetWithFallback(cfg)
+	}
+
+	return &LocalProvider{}
 }

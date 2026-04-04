@@ -1,10 +1,10 @@
 {
   "name": "skrt",
   "version": "0.3.0",
-  "description": "Blazing-fast skill routing engine for AI agents. 7-strategy matching + AI reranking in <50ms.",
+  "description": "Blazing-fast CLI + SKILL router for AI agents. Local skill discovery first, optional API reranking.",
   "author": "skrt-dev",
   "license": "MIT",
-  "repository": "https://github.com/LittlePeter52012/skill-router",
+  "repository": "https://github.com/skrt-dev/skill-router",
   "keywords": [
     "skill-router",
     "agent-skills",
@@ -31,9 +31,9 @@
   "install": {
     "requires": ["go>=1.21"],
     "commands": [
-      "git clone https://github.com/LittlePeter52012/skill-router.git",
+      "git clone https://github.com/skrt-dev/skill-router.git",
       "cd skill-router && make install",
-      "skrt index && skrt smart-pin"
+      "skrt index"
     ]
   },
   "skill_path": "SKILL.md"

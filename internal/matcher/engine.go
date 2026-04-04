@@ -1,12 +1,12 @@
 // Package matcher implements the multi-strategy skill matching engine.
 // It scores each skill against a query using 7 strategies:
-//   1. Exact name match (100 pts)
-//   2. Name/query containment (90 pts)
-//   3. Direct description substring (up to 95 pts)
-//   4. Token overlap (up to 80 pts)
-//   5. Individual token in description (up to 92 pts)
-//   6. Fuzzy Levenshtein matching (up to 40 pts)
-//   7. CJK bigram matching (up to 75 pts)
+//  1. Exact name match (100 pts)
+//  2. Name/query containment (90 pts)
+//  3. Direct description substring (up to 95 pts)
+//  4. Token overlap (up to 80 pts)
+//  5. Individual token in description (up to 92 pts)
+//  6. Fuzzy Levenshtein matching (up to 40 pts)
+//  7. CJK bigram matching (up to 75 pts)
 package matcher
 
 import (
@@ -57,13 +57,25 @@ func (e *Engine) Query(idx *index.Index, query string) []Result {
 		score, reason := e.score(entry, queryLower, queryTokens, queryRunes)
 
 		// Apply pinned boost:
-		// - If pinned AND matched query: +50 bonus (reward relevance)
+		// - If pinned AND matched query: apply a small bonus, but do not let
+		//   generic utility skills outrank strong exact/name matches.
 		// - If pinned but NOT matched: set to min_score (ensure visibility)
 		isPinned := e.cfg.IsPinned(entry.Name) || e.cfg.IsPinned(entry.Dir)
 		if isPinned {
 			if score > 0 {
-				score += 50
-				reason += "+pinned"
+				original := score
+				switch {
+				case score >= 90:
+					// Strong exact/name matches are already ranked correctly.
+				default:
+					score += 15
+					if score > 89 {
+						score = 89
+					}
+				}
+				if score > original {
+					reason += "+pinned"
+				}
 			} else {
 				score = e.cfg.MinScore
 				reason = "pinned"

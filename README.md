@@ -80,13 +80,33 @@ Config file: `~/.skrt/config.json`
   "skill_dirs": [
     "~/.gemini/antigravity/skills",
     "~/.agents/skills",
+    "~/.config/opencode/skills",
+    "~/.qwen/skills",
+    "~/.cc-switch/skills",
+    "~/.codex/skills",
+    "~/.codex/vendor_imports/skills",
     "./.agent/skills"
   ],
   "pinned": ["brainstorming"],
   "weights": { "brainstorming": 20 },
   "top_n": 5,
   "min_score": 10,
-  "provider": "local"
+  "ignore_dir_names": [
+    ".git",
+    ".agency-agents-repo",
+    ".kdense-repo",
+    ".superpowers-repo"
+  ],
+  "provider": "local",
+  "provider_mode": "local_first",
+  "sources": [
+    {
+      "name": "skill-router",
+      "path": "~/src/skill-router",
+      "install": ["make install"],
+      "reindex": true
+    }
+  ]
 }
 ```
 
@@ -98,9 +118,28 @@ skrt dir remove ~/old-skills
 skrt dir list
 ```
 
+### Ignore Duplicate Mirrors
+
+Use `ignore_dir_names` to skip checked-out repo mirrors inside your skills tree.
+This keeps the index lean when a tool installs skills at the top level but also
+keeps a hidden source checkout alongside them.
+
+Common defaults:
+
+```json
+{
+  "ignore_dir_names": [
+    ".git",
+    ".agency-agents-repo",
+    ".kdense-repo",
+    ".superpowers-repo"
+  ]
+}
+```
+
 ### Pinned Skills
 
-Pinned skills always appear in results with a +50 score boost when they match the query:
+Pinned skills stay visible, but exact/name matches still outrank generic utility pins:
 
 ```bash
 skrt pin add brainstorming
@@ -143,9 +182,32 @@ How it works:
 Apply these pins? [Y/n]
 ```
 
+### 🔄 Managed Source Updates
+
+SKRT can also update locally checked-out skill repositories and run the
+appropriate sync/install commands for each one.
+
+```bash
+# Register a managed source
+skrt source add superpowers ~/src/superpowers \
+  --install "make install" \
+  --reindex
+
+# See what SKRT will update without changing anything
+skrt update --dry-run
+
+# Pull all managed sources and rebuild the index if needed
+skrt update --reindex
+```
+
+This is intentionally generic: you decide which repositories are managed and
+which install commands should run after a successful pull.
+
 ## 🤖 AI Provider Architecture
 
-SKRT supports pluggable AI backends for enhanced accuracy:
+SKRT supports pluggable AI backends for enhanced accuracy. Queries stay
+**local-first by default** and only use the configured API provider when you
+explicitly request it (`--provider api`) or switch to provider-first mode.
 
 | Provider | Speed | Accuracy | Dependencies |
 |----------|-------|----------|--------------|
@@ -171,6 +233,9 @@ skrt provider setup --endpoint https://api.openai.com/v1 --env OPENAI_API_KEY
 # Use API provider for a single query
 skrt query "protein structure prediction" --provider api
 
+# Or explicitly switch the default query mode to API-first
+skrt provider set api
+
 # Graceful fallback: if API fails, keyword results are used automatically
 ```
 
@@ -194,16 +259,18 @@ skrt status                   Show index and config status (alias: st)
 skrt pin add|remove|list      Manage pinned skills
 skrt smart-pin [--apply]      Auto-suggest pins from usage patterns
 skrt dir add|remove|list      Manage skill directories
+skrt source add|remove|list   Manage git-backed skill sources
 skrt provider status          Show AI provider configuration
 skrt provider setup           Configure API provider (interactive)
-skrt provider set <name>      Switch provider: local, api
+skrt provider set <name>      Switch default query mode: local, api
 skrt provider models          List supported embedding models
+skrt update [--reindex]       Pull managed sources and optionally rebuild index
 skrt version                  Show version info
 
 Options:
   --verbose, -v           Show debug info on stderr
   --top N                 Override max results (default: 5)
-  --provider, -p NAME     Use specific AI provider
+  --provider, -p NAME     Use provider for this query only
 ```
 
 ## 🔌 Agent Integration
@@ -297,6 +364,7 @@ SKRT is a **CLI tool + Agent Meta-Skill** — it provides both a human CLI inter
 ### What SKRT Is NOT
 
 - ❌ **Not an MCP server** — MCP requires persistent JSON-RPC processes. SKRT is a one-shot CLI.
+- ✅ **Prefer local skills first** — SKRT scans local skill directories (Gemini, Codex, OpenCode, Qwen, cc-switch, etc.) before any optional API reranking.
 - ❌ **Not a LobeHub plugin** — LobeHub uses OpenAPI-spec HTTP plugins for LobeChat.
 - ❌ **Not an IDE extension** — works across all terminal-based agents.
 
