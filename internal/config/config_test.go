@@ -6,11 +6,26 @@ import (
 	"testing"
 )
 
-func TestDefaultConfigIncludesLocalFirstModeAndCommonSkillDirs(t *testing.T) {
+func TestDefaultConfigIncludesAPIFirstModeAndCommonSkillDirs(t *testing.T) {
 	cfg := DefaultConfig()
 
-	if cfg.ProviderMode != ProviderModeLocalFirst {
-		t.Fatalf("provider_mode = %q, want %q", cfg.ProviderMode, ProviderModeLocalFirst)
+	if cfg.Provider != "api" {
+		t.Fatalf("provider = %q, want %q", cfg.Provider, "api")
+	}
+
+	if cfg.ProviderMode != ProviderModeProviderFirst {
+		t.Fatalf("provider_mode = %q, want %q", cfg.ProviderMode, ProviderModeProviderFirst)
+	}
+
+	apiCfg := cfg.GetProviderConfig("api")
+	if apiCfg.Endpoint != "https://generativelanguage.googleapis.com/v1beta" {
+		t.Fatalf("default api endpoint = %q", apiCfg.Endpoint)
+	}
+	if apiCfg.APIKeyEnv != "GEMINI_API_KEY" {
+		t.Fatalf("default api key env = %q", apiCfg.APIKeyEnv)
+	}
+	if apiCfg.Model != "gemini-embedding-001" {
+		t.Fatalf("default api model = %q", apiCfg.Model)
 	}
 
 	wantDirs := []string{
@@ -57,7 +72,7 @@ func TestDefaultConfigIncludesLocalFirstModeAndCommonSkillDirs(t *testing.T) {
 	}
 }
 
-func TestLoadAddsCommonSkillDirsAndDefaultsToLocalFirst(t *testing.T) {
+func TestLoadAddsCommonSkillDirsAndDefaultsToProviderFirst(t *testing.T) {
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "config.json")
 
@@ -74,8 +89,8 @@ func TestLoadAddsCommonSkillDirsAndDefaultsToLocalFirst(t *testing.T) {
 		t.Fatalf("load config: %v", err)
 	}
 
-	if cfg.ProviderMode != ProviderModeLocalFirst {
-		t.Fatalf("provider_mode = %q, want %q", cfg.ProviderMode, ProviderModeLocalFirst)
+	if cfg.ProviderMode != ProviderModeProviderFirst {
+		t.Fatalf("provider_mode = %q, want %q", cfg.ProviderMode, ProviderModeProviderFirst)
 	}
 
 	wantDirs := []string{
@@ -116,6 +131,39 @@ func TestLoadAddsCommonSkillDirsAndDefaultsToLocalFirst(t *testing.T) {
 		if !found {
 			t.Fatalf("loaded ignore dirs missing %q", want)
 		}
+	}
+}
+
+func TestLoadFillsMissingAPIDefaults(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "config.json")
+
+	data := []byte(`{
+  "provider": "api",
+  "providers": {
+    "api": {
+      "model": "gemini-embedding-2-preview"
+    }
+  }
+}`)
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	apiCfg := cfg.GetProviderConfig("api")
+	if apiCfg.Endpoint != "https://generativelanguage.googleapis.com/v1beta" {
+		t.Fatalf("endpoint = %q", apiCfg.Endpoint)
+	}
+	if apiCfg.APIKeyEnv != "GEMINI_API_KEY" {
+		t.Fatalf("api_key_env = %q", apiCfg.APIKeyEnv)
+	}
+	if apiCfg.Model != "gemini-embedding-2-preview" {
+		t.Fatalf("model = %q", apiCfg.Model)
 	}
 }
 

@@ -78,7 +78,7 @@ type Config struct {
 	IgnoreDirNames []string `json:"ignore_dir_names,omitempty"`
 
 	// Provider is the active provider name: "local", "onnx", or "api".
-	// Default is "local" (keyword matching only, zero dependencies).
+	// Default is "api" with Gemini embeddings and graceful fallback to local.
 	Provider string `json:"provider"`
 
 	// ProviderMode controls whether queries should stay local-first or
@@ -104,9 +104,12 @@ func DefaultConfig() *Config {
 		TopN:           5,
 		MinScore:       10,
 		IgnoreDirNames: defaultIgnoreDirNames(),
-		Provider:       "local",
-		ProviderMode:   ProviderModeLocalFirst,
-		Sources:        []ManagedSource{},
+		Provider:       "api",
+		ProviderMode:   ProviderModeProviderFirst,
+		Providers: map[string]ProviderConfig{
+			"api": defaultAPIProviderConfig(),
+		},
+		Sources: []ManagedSource{},
 	}
 }
 
@@ -140,11 +143,12 @@ func Load(path string) (*Config, error) {
 		cfg.Weights = map[string]int{}
 	}
 	if cfg.Provider == "" {
-		cfg.Provider = "local"
+		cfg.Provider = "api"
 	}
 	if cfg.ProviderMode == "" {
-		cfg.ProviderMode = ProviderModeLocalFirst
+		cfg.ProviderMode = ProviderModeProviderFirst
 	}
+	cfg.applyProviderDefaults()
 	if len(cfg.IgnoreDirNames) == 0 {
 		cfg.IgnoreDirNames = defaultIgnoreDirNames()
 	} else {
@@ -319,4 +323,31 @@ func mergeUnique(existing, defaults []string) []string {
 	}
 
 	return merged
+}
+
+func defaultAPIProviderConfig() ProviderConfig {
+	return ProviderConfig{
+		Endpoint:  "https://generativelanguage.googleapis.com/v1beta",
+		APIKeyEnv: "GEMINI_API_KEY",
+		Model:     "gemini-embedding-001",
+	}
+}
+
+func (c *Config) applyProviderDefaults() {
+	if c.Providers == nil {
+		c.Providers = make(map[string]ProviderConfig)
+	}
+
+	apiCfg := c.Providers["api"]
+	defaults := defaultAPIProviderConfig()
+	if apiCfg.Endpoint == "" {
+		apiCfg.Endpoint = defaults.Endpoint
+	}
+	if apiCfg.APIKeyEnv == "" {
+		apiCfg.APIKeyEnv = defaults.APIKeyEnv
+	}
+	if apiCfg.Model == "" {
+		apiCfg.Model = defaults.Model
+	}
+	c.Providers["api"] = apiCfg
 }

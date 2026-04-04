@@ -2,7 +2,7 @@
 
 **Blazing-fast skill routing engine for AI coding agents.**
 
-SKRT discovers, indexes, and routes agent skills in under 50ms — no Python, no dependencies, no API keys required.
+SKRT discovers, indexes, and routes agent skills in under 50ms — no Python, no heavyweight dependencies, and graceful local fallback when no API key is configured.
 
 Works with **Antigravity**, **Claude Code**, **Codex**, **Cursor**, **Gemini CLI**, and any agent that uses [SKILL.md files](https://docs.anthropic.com/en/docs/claude-code/skills).
 
@@ -57,7 +57,7 @@ skrt q "用NotebookLM查找" --verbose   # CJK + debug info
   "query": "PDF merge",
   "elapsed_ms": 2.3,
   "total": 3,
-  "provider": "local",
+  "provider": "api",
   "results": [
     {
       "rank": 1,
@@ -97,8 +97,15 @@ Config file: `~/.skrt/config.json`
     ".kdense-repo",
     ".superpowers-repo"
   ],
-  "provider": "local",
-  "provider_mode": "local_first",
+  "provider": "api",
+  "provider_mode": "provider_first",
+  "providers": {
+    "api": {
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+      "api_key_env": "GEMINI_API_KEY",
+      "model": "gemini-embedding-001"
+    }
+  },
   "sources": [
     {
       "name": "skill-router",
@@ -205,14 +212,14 @@ which install commands should run after a successful pull.
 
 ## 🤖 AI Provider Architecture
 
-SKRT supports pluggable AI backends for enhanced accuracy. Queries stay
-**local-first by default** and only use the configured API provider when you
-explicitly request it (`--provider api`) or switch to provider-first mode.
+SKRT supports pluggable AI backends for enhanced accuracy. New installs default
+to **Gemini API-first** with graceful fallback to local keyword ranking when no
+API key is available or the API request fails.
 
 | Provider | Speed | Accuracy | Dependencies |
 |----------|-------|----------|--------------|
-| `local` (default) | ~3ms | Good | None |
-| `api` | ~3-5s | Excellent | API key |
+| `api` (default) | ~3-5s | Excellent | API key |
+| `local` | ~3ms | Good | None |
 
 ### Quick Setup (Gemini)
 
@@ -230,13 +237,17 @@ skrt provider setup --endpoint https://api.openai.com/v1 --env OPENAI_API_KEY
 🔒 **Security**: API keys are stored in `~/.skrt/credentials` with `0600` permissions (owner-only). Config files only store the env var name, never the actual key.
 
 ```bash
-# Use API provider for a single query
-skrt query "protein structure prediction" --provider api
+# Default queries already use the configured API provider
+skrt query "protein structure prediction"
 
-# Or explicitly switch the default query mode to API-first
+# Force local-only matching for a single query
+skrt query "protein structure prediction" --provider local
+
+# Explicitly switch the default query mode if needed
 skrt provider set api
+skrt provider set local
 
-# Graceful fallback: if API fails, keyword results are used automatically
+# Graceful fallback: if API fails or no key is set, keyword results are used automatically
 ```
 
 ### Supported Embedding Models

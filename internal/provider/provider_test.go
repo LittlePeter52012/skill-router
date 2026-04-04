@@ -108,10 +108,10 @@ func TestLocalProviderPassthrough(t *testing.T) {
 func TestGetProvider(t *testing.T) {
 	cfg := config.DefaultConfig()
 
-	// Default should be local
+	// Default should be API-first when credentials/config are present.
 	p := Get(cfg)
-	if p.Name() != "local" {
-		t.Errorf("expected 'local', got '%s'", p.Name())
+	if p.Name() != "api" {
+		t.Errorf("expected 'api', got '%s'", p.Name())
 	}
 
 	// Unknown should fallback to local
@@ -125,7 +125,12 @@ func TestGetProvider(t *testing.T) {
 func TestGetWithFallback(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Provider = "api"
-	// API without config should fall back to local
+	cfg.Providers["api"] = config.ProviderConfig{
+		Endpoint:  "https://example.com",
+		APIKeyEnv: "NONEXISTENT_SKRT_TEST_KEY_12345",
+		Model:     "gemini-embedding-001",
+	}
+	// API without available credentials should fall back to local.
 	p := GetWithFallback(cfg)
 	if p.Name() != "local" {
 		t.Errorf("expected fallback to 'local', got '%s'", p.Name())
@@ -172,5 +177,21 @@ func TestResolveForQueryUsesConfiguredProviderInProviderFirstMode(t *testing.T) 
 	p := ResolveForQuery(cfg, "")
 	if p.Name() != "api" {
 		t.Fatalf("provider-first mode returned %q, want %q", p.Name(), "api")
+	}
+}
+
+func TestResolveForQueryDefaultsToConfiguredProviderFirst(t *testing.T) {
+	t.Setenv("SKRT_TEST_API_KEY", "dummy-key")
+
+	cfg := config.DefaultConfig()
+	cfg.Providers["api"] = config.ProviderConfig{
+		Endpoint:  "https://example.com",
+		APIKeyEnv: "SKRT_TEST_API_KEY",
+		Model:     "gemini-embedding-001",
+	}
+
+	p := ResolveForQuery(cfg, "")
+	if p.Name() != "api" {
+		t.Fatalf("default provider-first mode returned %q, want %q", p.Name(), "api")
 	}
 }

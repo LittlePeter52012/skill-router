@@ -69,8 +69,9 @@ func GetWithFallback(cfg *config.Config) Provider {
 }
 
 // ResolveForQuery chooses the provider for a single query.
-// Explicit provider flags always win. Otherwise SKRT stays local-first
-// unless the config is explicitly set to provider-first mode.
+// Explicit provider flags always win. Otherwise SKRT uses the configured
+// default provider when provider-first mode is enabled and falls back to
+// local-only behavior in local-first mode.
 func ResolveForQuery(cfg *config.Config, requested string) Provider {
 	if requested != "" {
 		override := *cfg

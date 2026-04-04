@@ -155,8 +155,9 @@ func cmdQuery() {
 	engine := matcher.NewEngine(cfg)
 	results := engine.Query(idx, query)
 
-	// Apply reranking only when explicitly requested or when provider-first
-	// mode is enabled. Default behavior stays local-first.
+	// Apply reranking when explicitly requested or when provider-first
+	// mode is enabled. Default behavior is Gemini API-first with graceful
+	// fallback to local keyword ranking if credentials are unavailable.
 	p := provider.ResolveForQuery(cfg, providerName)
 	if p.Name() != "local" {
 		reranked, err := p.Rerank(results, query)
@@ -720,7 +721,7 @@ func cmdProviderStatus() {
 		masked := apiKey[:4] + "..." + apiKey[len(apiKey)-4:]
 		fmt.Printf(" ✅ (%s, %s)\n", masked, source)
 	} else {
-		fmt.Printf(" ❌ (not set — run: skrt provider setup)\n")
+		fmt.Printf(" ❌ (not set — queries will fall back to local; run: skrt provider setup)\n")
 	}
 
 	fmt.Printf("\n  Fusion:\n")
@@ -821,7 +822,7 @@ func cmdProviderSetup() {
 		Model:     model,
 	}
 	cfg.Provider = "api"
-	cfg.ProviderMode = config.ProviderModeLocalFirst
+	cfg.ProviderMode = config.ProviderModeProviderFirst
 	cfg.Fusion = &config.FusionConfig{
 		KeywordWeight: kwWeight,
 		AIWeight:      aiWeight,
@@ -838,8 +839,9 @@ func cmdProviderSetup() {
 	fmt.Printf("  Endpoint: %s\n", endpoint)
 	fmt.Printf("  Key Ref:  $%s\n", apiKeyEnv)
 	fmt.Printf("  Fusion:   keyword=%.1f, ai=%.1f\n", kwWeight, aiWeight)
-	fmt.Println("\n  Default behavior remains local-first.")
-	fmt.Println("  Try: skrt query \"PDF merge\" --provider api --verbose")
+	fmt.Println("\n  Default behavior is now Gemini API-first.")
+	fmt.Println("  Fallback: if no key is available, SKRT automatically uses local keyword ranking.")
+	fmt.Println("  Try: skrt query \"PDF merge\" --verbose")
 }
 
 // printUsage prints the usage information.
@@ -865,7 +867,7 @@ Usage:
   skrt source remove <name>     Remove a managed skill source
   skrt source list              List managed skill sources
   skrt provider status          Show AI provider configuration
-  skrt provider set <name>      Switch provider: local, api
+  skrt provider set <name>      Switch default provider mode: local, api
   skrt provider setup           Configure Gemini API provider
   skrt provider models          List supported embedding models
   skrt update [--reindex]       Pull managed sources and optionally rebuild index
@@ -885,7 +887,8 @@ Examples:
   skrt query "NotebookLM search"
   skrt "PDF merge"
   skrt q "molecular docking" --verbose --top 10
-  skrt q "protein structure" --provider api
+  skrt q "protein structure"
+  skrt q "protein structure" --provider local
   skrt pin add brainstorming
   skrt dir add ~/my-custom-skills
   skrt source add skills ~/src/skills --install "make install" --reindex
