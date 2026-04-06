@@ -35,6 +35,7 @@ import (
 	"github.com/skrt-dev/skill-router/internal/matcher"
 	"github.com/skrt-dev/skill-router/internal/provider"
 	"github.com/skrt-dev/skill-router/internal/smartpin"
+	"github.com/skrt-dev/skill-router/internal/translate"
 	"github.com/skrt-dev/skill-router/internal/updater"
 )
 
@@ -143,6 +144,23 @@ func cmdQuery() {
 		os.Exit(1)
 	}
 
+	// ===== Cross-language translation (Layer 0) =====
+	// When the query contains CJK or Cyrillic characters, translate it
+	// to English so keyword matching and AI reranking can work against
+	// English-language skill descriptions.
+	translatedQuery := query
+	if translate.NeedsTranslation(query) {
+		if verbose {
+			fmt.Fprintf(os.Stderr, "Query needs translation, calling Gemini...\n")
+		}
+		if tr, ok := translate.TranslateQuery(cfg, query); ok {
+			translatedQuery = tr
+			fmt.Fprintf(os.Stderr, "Translated: %q → %q\n", query, translatedQuery)
+		} else if verbose {
+			fmt.Fprintf(os.Stderr, "Translation returned unchanged (API may have failed)\n")
+		}
+	}
+
 	// Get or build index
 	dirs := cfg.ExpandedSkillDirs()
 	idx, err := index.GetOrBuild(dirs, index.CachePath(), false, cfg.IgnoreDirNames)
@@ -152,15 +170,22 @@ func cmdQuery() {
 	}
 
 	// Run keyword matching (Layer 1 — always runs)
+	// When query was translated, run BOTH original and translated queries
+	// and merge results, keeping the highest score per skill.
 	engine := matcher.NewEngine(cfg)
-	results := engine.Query(idx, query)
+	results := engine.Query(idx, translatedQuery)
+
+	if translatedQuery != query {
+		// Also match against the original query (for CJK bigram matching etc.)
+		origResults := engine.Query(idx, query)
+		results = mergeResults(results, origResults)
+	}
 
 	// Apply reranking when explicitly requested or when provider-first
-	// mode is enabled. Default behavior is Gemini API-first with graceful
-	// fallback to local keyword ranking if credentials are unavailable.
+	// mode is enabled. Use the translated query for embedding similarity.
 	p := provider.ResolveForQuery(cfg, providerName)
 	if p.Name() != "local" {
-		reranked, err := p.Rerank(results, query)
+		reranked, err := p.Rerank(results, translatedQuery)
 		if err != nil {
 			if verbose {
 				fmt.Fprintf(os.Stderr, "AI rerank failed (%s): %v, using keyword results\n", p.Name(), err)
@@ -1013,4 +1038,45 @@ func cmdSmartPin() {
 		fmt.Printf("  📌 %s\n", p)
 	}
 	fmt.Println("\nRun `skrt index --force` to rebuild with new pin weights.")
+}
+
+// mergeResults combines two result sets (e.g., from original + translated queries),
+// keeping the highest score per skill name. Used for cross-language query matching.
+func mergeResults(primary, secondary []matcher.Result) []matcher.Result {
+	best := make(map[string]matcher.Result)
+
+	for _, r := range primary {
+		best[r.Name] = r
+	}
+	for _, r := range secondary {
+		if existing, ok := best[r.Name]; !ok || r.Score > existing.Score {
+			best[r.Name] = r
+		}
+	}
+
+	merged := make([]matcher.Result, 0, len(best))
+	for _, r := range best {
+		merged = append(merged, r)
+	}
+
+	// Sort by score descending
+	for i := 0; i < len(merged); i++ {
+		for j := i + 1; j < len(merged); j++ {
+			if merged[j].Score > merged[i].Score ||
+				(merged[j].Score == merged[i].Score && merged[j].Name < merged[i].Name) {
+				merged[i], merged[j] = merged[j], merged[i]
+			}
+		}
+	}
+
+	// Re-assign ranks and apply topN limit
+	topN := 5
+	if len(merged) > topN {
+		merged = merged[:topN]
+	}
+	for i := range merged {
+		merged[i].Rank = i + 1
+	}
+
+	return merged
 }
