@@ -59,9 +59,9 @@ func TranslateQuery(cfg *config.Config, query string) (translated string, didTra
 
 	endpoint := strings.TrimRight(pc.Endpoint, "/")
 
-	// Use gemini-2.0-flash-lite for speed — fast and cheap for simple translation
-	// (gemini-2.0-flash was deprecated for new API keys as of 2026-04)
-	model := "gemini-2.0-flash-lite"
+	// Use Gemini 3.1 Flash Lite — cheapest and fastest current model for translation
+	// Model naming convention: gemini-{major}.{minor}-flash-lite-preview
+	model := "gemini-3.1-flash-lite-preview"
 	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", endpoint, model, apiKey)
 
 	// Craft a minimal prompt for translation
