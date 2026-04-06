@@ -24,18 +24,46 @@ Output: nlm-skill (score: 92, 50ms)
 6. 📐 Fuzzy Levenshtein matching (up to 40 pts)
 7. 🀄 CJK bigram matching (up to 75 pts) — full Chinese/Japanese/Korean support
 
+**🌐 Cross-language translation (Layer 0):**
+
+When a query contains CJK (Chinese/Japanese/Korean) or Cyrillic (Russian/Ukrainian) characters, SKRT automatically translates it to English via Gemini API before matching — enabling accurate skill discovery regardless of query language.
+
+```
+Input:  "小红书运营"
+Translated → "Xiaohongshu operation"
+Output: agency-xiaohongshu-specialist (score: 87)
+```
+
 ## 🚀 Quick Start
 
 ### Install
 
 ```bash
-# From source (requires Go 1.21+)
-git clone https://github.com/skrt-dev/skill-router.git
+# One-liner install (requires Go 1.21+)
+go install github.com/LittlePeter52012/skill-router/cmd/skrt@latest
+
+# Or from source
+git clone https://github.com/LittlePeter52012/skill-router.git
 cd skill-router
 make install    # Installs 'skrt' to $GOPATH/bin
+```
 
-# Or build locally
-make build      # Binary at ./bin/skrt
+### New Machine Setup
+
+```bash
+# 1. Install SKRT
+go install github.com/LittlePeter52012/skill-router/cmd/skrt@latest
+
+# 2. Set up Gemini API key (for AI reranking + cross-language translation)
+skrt provider setup   # Interactive — prompts for API key
+
+# 3. Index your skills
+skrt index
+
+# 4. Verify everything works
+skrt query "frontend developer"      # English
+skrt query "小红书运营"                # Chinese (auto-translated)
+skrt query "машинное обучение"       # Russian (auto-translated)
 ```
 
 ### First Run
@@ -317,6 +345,11 @@ Agent reads pdf/SKILL.md and executes
 ┌──────────────┐     ┌───────────────┐     ┌──────────────┐
 │  Agent Query  │────▶│  SKRT Engine   │────▶│  JSON Output  │
 └──────────────┘     │               │     └──────────────┘
+                     │  Layer 0:     │
+                     │  Translation  │
+                     │  (CJK/Cyrillic│
+                     │  → English)   │
+                     │               │
                      │  Layer 1:     │
                      │  7-Strategy   │
                      │  Keyword      │
@@ -345,6 +378,7 @@ skill-router/
 │   ├── matcher/       # 7-strategy matching engine
 │   ├── provider/      # Pluggable AI backends (local/api)
 │   ├── smartpin/      # Usage-based smart pin suggestions
+│   ├── translate/     # Cross-language query translation (Gemini API)
 │   └── unicode/       # Shared CJK text utilities
 ├── pkg/frontmatter/   # YAML frontmatter parser
 ├── Makefile
